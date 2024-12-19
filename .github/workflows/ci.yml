@@ -39,10 +39,10 @@ jobs:
                 cd order-api
                 mvn -B clean package --file pom.xml
 
-            - name: Update dependency graph
-              run: cd order-api
-              uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
-
+            - name: Update Dependency Graph
+              run: |
+                cd order-api
+                mvn dependency:tree
             - name: Setup Node.js
               uses: actions/setup-node@v4
               with: 
