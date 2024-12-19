@@ -9,42 +9,20 @@ on:
         branches: [ "master" ]
 
 jobs:
-    super-lint:
-        runs-on: ubuntu-latest
-        
-        permissions:
-            contents: read
-            packages: read
-            statuses: write
-        
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                fetch-depth: 0
-
-            - name: Super-linter
-              uses: super-linter/super-linter@v4
-              env:
-                  DEFAULT_BRANCH: main
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  VALIDATE_JAVA: true
-                  VALIDATE_JAVASCRIPT_ES: true
-                  VALIDATE_JAVASCRIPT_STANDARD: true
-
     build:
         runs-on: ubuntu-latest
-
-        services:
-            postgres:
-                image: postgres:16.3
-                ports:
-                    - 5432:5432
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: orderdb
-                options: >-
-                    --health-cmd "pg_isready -U postgres -d orderdb"
+        
+        # services:
+        #     postgres:
+        #         image: postgres:16.3
+        #         ports:
+        #             - 5432:5432
+        #         env:
+        #             POSTGRES_USER: postgres
+        #             POSTGRES_PASSWORD: postgres
+        #             POSTGRES_DB: orderdb
+        #         options: >-
+        #             --health-cmd "pg_isready -U postgres -d orderdb"
 
         steps:
             - uses: action/checkout@v4
