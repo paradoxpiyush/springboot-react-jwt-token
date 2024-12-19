@@ -57,6 +57,8 @@ jobs:
               run: |
                 cd order-ui
                 npm run build
+              env:
+                CI: false
 
             - name: Start frontend for verification
               run: |
