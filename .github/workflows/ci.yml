@@ -48,6 +48,10 @@ jobs:
               with: 
                 node-version: '18'
 
+            - name: Verify Backend API
+              run: |
+                curl --retry 5 --retry-delay 5 -f http://localhost:8080/api/health
+
             - name: Install frontend dependencies
               run: |
                 cd order-ui
