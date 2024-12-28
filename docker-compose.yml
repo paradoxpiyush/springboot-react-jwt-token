@@ -11,3 +11,25 @@ services:
       - POSTGRES_USER=postgres
     healthcheck:
       test: "pg_isready -U postgres"
+
+  backend:
+    build:
+      context: order-api/
+    container_name: order-api
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/orderdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: order-ui/
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"  # React frontend served at http://localhost:3000
+    depends_on:
+      - backend
