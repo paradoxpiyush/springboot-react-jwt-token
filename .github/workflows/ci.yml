@@ -1,77 +1,68 @@
-# CI Pipeline for the project
-
-name: CI
+name: CI - Build and Push Docker Images
 
 on:
-    push: 
-        branches: [ "master" ]
-    pull_request: 
-        branches: [ "master" ]
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        
-        services:
-            postgres:
-                image: postgres:16.3
-                ports:
-                    - 5432:5432
-                env:
-                    POSTGRES_USER: postgres
-                    POSTGRES_PASSWORD: postgres
-                    POSTGRES_DB: orderdb
-                options: >-
-                    --health-cmd "pg_isready -U postgres -d orderdb"
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-        steps:
-            - uses: actions/checkout@v4
-            
-            - name: Set up JDK 17
-              uses: actions/setup-java@v4
-              with:
-                java-version: '17'
-                distribution: 'temurin'
-                cache: maven
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
 
-            - name: Build with maven
-              run: |
-                cd order-api
-                mvn -B clean package --file pom.xml
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          cache: 'npm'
+          cache-dependency-path: order-ui/package-lock.json
 
-            - name: Start Backend Server
-              run: |
-                cd order-api
-                java -jar target/*.jar &
-                sleep 10            
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Verify Backend API
-              run: |
-                curl --retry 5 --retry-delay 5 -f http://localhost:8080/api/health
-  
-            - name: Update Dependency Graph
-              run: |
-                cd order-api
-                mvn dependency:tree
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with: 
-                node-version: '18'
+      - name: Build and test Backend
+        run: |
+          cd order-api
+          ./mvnw clean verify
+      
+      - name: Build and test Frontend
+        run: |
+          cd order-ui
+          npm ci
+          npm test -- --passWithNoTests
 
-            - name: Install frontend dependencies
-              run: |
-                cd order-ui
-                npm install
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
 
-            - name: Build Frontend
-              run: |
-                cd order-ui
-                npm run build
-              env:
-                CI: false
+      - name: Build and push Backend Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./order-api
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/order-api:latest,${{ secrets.DOCKERHUB_USERNAME }}/order-api:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/order-api:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/order-api:buildcache,mode=max
 
-            - name: Start frontend for verification
-              run: |
-                cd order-ui
-                npm start &
-                sleep 10
+      - name: Build and push Frontend Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./order-ui
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/order-ui:latest,${{ secrets.DOCKERHUB_USERNAME }}/order-ui:${{ github.sha }}
+          cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/order-ui:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/order-ui:buildcache,mode=max
