@@ -1,0 +1,146 @@
+name: CD - Deploy to AWS EC2
+
+on:
+  workflow_run:
+    workflows: ["CI - Build and Push Docker Images"]
+    types:
+      - completed
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup SSH to EC2 instance
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Create docker-compose file if not exists
+            mkdir -p ~/app
+            
+            # Create or update docker-compose.yml
+            cat > ~/app/docker-compose.yml << 'EOL'
+            version: '3.8'
+            
+            services:
+              postgres:
+                image: postgres:13
+                container_name: postgres
+                restart: always
+                environment:
+                  POSTGRES_USER: postgres
+                  POSTGRES_PASSWORD: postgres
+                  POSTGRES_DB: orderdb
+                volumes:
+                  - postgres-data:/var/lib/postgresql/data
+                networks:
+                  - app-network
+            
+              order-api:
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/order-api:latest
+                container_name: order-api
+                restart: always
+                depends_on:
+                  - postgres
+                environment:
+                  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/orderdb
+                  SPRING_DATASOURCE_USERNAME: postgres
+                  SPRING_DATASOURCE_PASSWORD: postgres
+                ports:
+                  - "8080:8080"
+                networks:
+                  - app-network
+            
+              order-ui:
+                image: ${{ secrets.DOCKERHUB_USERNAME }}/order-ui:latest
+                container_name: order-ui
+                restart: always
+                depends_on:
+                  - order-api
+                environment:
+                  REACT_APP_API_URL: http://${{ secrets.EC2_HOST }}:8080
+                ports:
+                  - "80:80"
+                networks:
+                  - app-network
+            
+              prometheus:
+                image: prom/prometheus:v2.40.0
+                container_name: prometheus
+                restart: always
+                volumes:
+                  - ~/app/prometheus.yml:/etc/prometheus/prometheus.yml
+                  - prometheus-data:/prometheus
+                ports:
+                  - "9090:9090"
+                networks:
+                  - app-network
+            
+              grafana:
+                image: grafana/grafana:9.2.4
+                container_name: grafana
+                restart: always
+                depends_on:
+                  - prometheus
+                volumes:
+                  - grafana-data:/var/lib/grafana
+                ports:
+                  - "3000:3000"
+                networks:
+                  - app-network
+            
+            volumes:
+              postgres-data:
+              prometheus-data:
+              grafana-data:
+            
+            networks:
+              app-network:
+                driver: bridge
+            EOL
+            
+            # Create prometheus.yml configuration
+            cat > ~/app/prometheus.yml << 'EOL'
+            global:
+              scrape_interval: 15s
+            
+            scrape_configs:
+              - job_name: 'prometheus'
+                static_configs:
+                  - targets: ['localhost:9090']
+              
+              - job_name: 'spring-actuator'
+                metrics_path: '/actuator/prometheus'
+                static_configs:
+                  - targets: ['order-api:8080']
+            EOL
+            
+            # Pull the latest images
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/order-api:latest
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/order-ui:latest
+            
+            # Stop and remove existing containers
+            cd ~/app
+            docker-compose down || true
+            
+            # Start new containers
+            docker-compose up -d
+            
+            # Clean up unused images
+            docker image prune -af
